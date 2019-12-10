@@ -38,6 +38,7 @@
 # include <tos.h>
 #else
 # include <mint/osbind.h>
+# include <mint/falcon.h>
 # include <mint/linea.h>
 # include "libc/snprintf/snprintf.h"
 #endif
@@ -95,6 +96,10 @@ short  (**__funcs) (void);
 unsigned char keyup;
 
 unsigned long timercnt;
+
+static unsigned long  f030_color_reg = 0xFFFF8240UL;
+static unsigned short f030_color = 0;
+static unsigned long  _VDO_Cookie = 0;
 
 WORD fdcDmaMode = 0;
 
@@ -759,11 +764,19 @@ unsigned char wait_function_key()
 *                              Display Output
 *********************************************************************************/
 
+static void su_set_f030_color(void)
+{
+    unsigned short * colptr = (unsigned short *)f030_color_reg;
+    *colptr = f030_color;
+}
+
 unsigned char set_color_scheme(unsigned char color)
 {
 	unsigned short * palette;
 	int i,j;
 	int nbcols;
+
+    const unsigned long _VDO_Cookie = get_cookie('_VDO');
 
 	palette = &colortable[(color<<2)&0x1F];
 	nbcols = 2<<(NB_PLANES-1);
@@ -778,7 +791,17 @@ unsigned char set_color_scheme(unsigned char color)
 			j = nbcols - 4 + i;
 		}
 
-		Setcolor(j, palette[i]);
+        if((_VDO_Cookie & 0x00030000) > 0) {
+            // Atari Falcon 030, Setcolor() XBIOS call does not work here, direct write to HW register is necessary
+            // Supexec() does not allow passing of parameters to the function, we use a pseudo register
+            f030_color_reg = 0xFFFF8240UL + j * 2;
+            f030_color = palette[i];
+            Supexec(su_set_f030_color);
+
+        }
+        else {
+            (void)Setcolor(j, palette[i]);
+        }
 	}
 
 	return g_color;
@@ -816,11 +839,11 @@ int  init_display(ui_context * ctx)
     // decode some cookie jar entries
     const unsigned long MiNT_cookie = get_cookie('MiNT');
     const unsigned long MagX_cookie = get_cookie('MagX');
-    const unsigned long _VDO_cookie = get_cookie('_VDO');
+
+    _VDO_Cookie = get_cookie('_VDO');
 
     // check if we are running under a known multitasking OS, this is currently not supported
-    if (MiNT_cookie || MagX_cookie)
-    {
+    if (MiNT_cookie || MagX_cookie) {
         (void)Cconws("HxC FF File Selector:\r\nMultitasking OS is not supported!\r\n");
         #ifdef DEBUG
         dbg_printf("lockup : multitasking OS detected\n");
@@ -835,11 +858,20 @@ int  init_display(ui_context * ctx)
 	// do not do : __asm__("dc.w 0xa00a"); (it clobbers registry)
 	lineaa();
 
-	if (V_X_MAX < 640) {
-		/*Blitmode(1) */;
-		_oldrez = Getrez();
-		Setscreen((unsigned char *) -1, (unsigned char *) -1, 1 );
-	}
+    if((_VDO_Cookie & 0x00030000UL) > 0) {
+        // force ST-MED on Falcon unless SM124 connected (monitor detection pins on video connector)
+        _oldrez = Getrez();
+        if(VgetMonitor() != 0) {
+            Setscreen((unsigned char *) -1, (unsigned char *) -1, 1 );
+        }
+    }
+    else {
+        if (V_X_MAX < 640) {
+            /*Blitmode(1) */;
+            _oldrez = Getrez();
+            Setscreen((unsigned char *) -1, (unsigned char *) -1, 1 );
+        }
+    }
 
 	ctx->SCREEN_XRESOL = V_X_MAX;
 	ctx->SCREEN_YRESOL = V_Y_MAX;
