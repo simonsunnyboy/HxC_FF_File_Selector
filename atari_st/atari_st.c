@@ -60,7 +60,8 @@
 
 #include "errors_def.h"
 
-# define _hz_200  ((unsigned long *) 0x4baL)
+#define _hz_200   ((unsigned long *) 0x4baL)
+#define _cookie   (0x5a0L)
 
 static unsigned char floppydrive;
 static unsigned char datacache[512*9];
@@ -136,6 +137,35 @@ void dbg_printf(char * chaine, ...)
 }
 
 #endif
+
+/* retrieve data from TOS cookie jar
+ * The cookie jar points to a list of 32bit words in memory.
+ * Each entry consists of a marker and content.
+ * Content is typically a bit-field or a memory address.
+ * See http://toshyp.atari.org/en/003007.html
+ */
+static unsigned long get_cookie(unsigned long cookie)
+{
+    unsigned long *cptr = (unsigned long*)(Setexc(_cookie/4,(const void (*)(void))-1));  /* get pointer to cookiejar */
+
+    unsigned long cookie_val = 0;  /* cookie value returned in case of error, e.q. cookie not found or cookie jar not present */
+
+    if(cptr != 0)
+    {
+        /* if we have a cookie jar loop through all cookies until found or jar end: */
+        while((*cptr != cookie)&&(*cptr != 0))
+        {
+            cptr = cptr + 2;
+        }
+        if(*cptr == cookie)
+        {
+            /* we found our cookie - return its value */
+            cookie_val = (*(cptr+1));
+        }
+    }
+
+    return cookie_val;
+}
 
 void waitus(int centus)
 {
@@ -782,6 +812,22 @@ int install_joy_vector()
 int  init_display(ui_context * ctx)
 {
 	unsigned long k,i;
+
+    // decode some cookie jar entries
+    const unsigned long MiNT_cookie = get_cookie('MiNT');
+    const unsigned long MagX_cookie = get_cookie('MagX');
+    const unsigned long _VDO_cookie = get_cookie('_VDO');
+
+    // check if we are running under a known multitasking OS, this is currently not supported
+    if (MiNT_cookie || MagX_cookie)
+    {
+        (void)Cconws("HxC FF File Selector:\r\nMultitasking OS is not supported!\r\n");
+        #ifdef DEBUG
+        dbg_printf("lockup : multitasking OS detected\n");
+        #endif
+        Pterm(1);
+    }
+
 
 	linea0();
 
