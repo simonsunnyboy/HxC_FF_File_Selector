@@ -97,8 +97,6 @@ unsigned char keyup;
 
 unsigned long timercnt;
 
-static unsigned long  f030_color_reg = 0xFFFF8240UL;
-static unsigned short f030_color = 0;
 static unsigned long  _VDO_Cookie = 0;
 
 WORD fdcDmaMode = 0;
@@ -764,19 +762,11 @@ unsigned char wait_function_key()
 *                              Display Output
 *********************************************************************************/
 
-static void su_set_f030_color(void)
-{
-    unsigned short * colptr = (unsigned short *)f030_color_reg;
-    *colptr = f030_color;
-}
-
 unsigned char set_color_scheme(unsigned char color)
 {
 	unsigned short * palette;
 	int i,j;
 	int nbcols;
-
-    const unsigned long _VDO_Cookie = get_cookie('_VDO');
 
 	palette = &colortable[(color<<2)&0x1F];
 	nbcols = 2<<(NB_PLANES-1);
@@ -791,17 +781,7 @@ unsigned char set_color_scheme(unsigned char color)
 			j = nbcols - 4 + i;
 		}
 
-        if((_VDO_Cookie & 0x00030000) > 0) {
-            // Atari Falcon 030, Setcolor() XBIOS call does not work here, direct write to HW register is necessary
-            // Supexec() does not allow passing of parameters to the function, we use a pseudo register
-            f030_color_reg = 0xFFFF8240UL + j * 2;
-            f030_color = palette[i];
-            Supexec(su_set_f030_color);
-
-        }
-        else {
-            (void)Setcolor(j, palette[i]);
-        }
+        (void)Setcolor(j, palette[i]);
 	}
 
 	return g_color;
